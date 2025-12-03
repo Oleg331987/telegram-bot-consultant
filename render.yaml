@@ -1,9 +1,0 @@
-services:
-  - type: worker
-    name: telegram-bot-consultant
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
-    envVars:
-      - key: BOT_TOKEN
-        value: 8029678200:AAGxJLF_aidd4xCPdmzBYa9M0Y18WcJCBlo
