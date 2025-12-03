@@ -6,6 +6,9 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.exceptions import TelegramBadRequest
+from fastapi import FastAPI
+import uvicorn
+from contextlib import asynccontextmanager
 
 # =============================
 # НАСТРОЙКА ЛОГИРОВАНИЯ
@@ -19,15 +22,41 @@ logger = logging.getLogger(__name__)
 # =============================
 # НАСТРОЙКА БОТА
 # =============================
-# Получаем токен из переменных окружения (безопасно!)
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8029678200:AAGxJLF_aidd4xCPdmzBYa9M0Y18WcJCBlo")
 
 if not BOT_TOKEN:
-    logger.error("❌ Токен бота не найден! Установите переменную окружения BOT_TOKEN")
+    logger.error("❌ Токен бота не найден!")
     exit(1)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+
+# =============================
+# FastAPI приложение для Render
+# =============================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Запуск при старте
+    logger.info("🚀 Запуск бота...")
+    
+    # Запускаем бота в фоне
+    asyncio.create_task(run_bot())
+    
+    yield
+    
+    # Очистка при остановке
+    logger.info("🛑 Остановка бота...")
+    await bot.session.close()
+
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/")
+async def root():
+    return {"status": "ok", "message": "Telegram bot is running"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 # =============================
 # Безопасное редактирование
@@ -46,8 +75,9 @@ async def safe_edit_message(message: types.Message, text: str, reply_markup=None
         logger.error(f"Неожиданная ошибка: {e}")
 
 # =============================
-# ГЛАВНОЕ МЕНЮ
+# ВАШ ОСНОВНОЙ КОД БОТА (без изменений)
 # =============================
+
 @dp.message(Command("start"))
 async def start(message: types.Message):
     logger.info(f"Пользователь {message.from_user.id} запустил бота")
@@ -58,9 +88,6 @@ async def start(message: types.Message):
     ])
     await message.answer("Выберите раздел:", reply_markup=kb)
 
-# =============================
-# КОМАНДА ПОМОЩИ
-# =============================
 @dp.message(Command("help"))
 async def help_command(message: types.Message):
     help_text = """
@@ -79,9 +106,6 @@ async def help_command(message: types.Message):
     """
     await message.answer(help_text, parse_mode="Markdown")
 
-# =============================
-# КОМАНДА ПРОВЕРКИ СТАТУСА
-# =============================
 @dp.message(Command("status"))
 async def status_command(message: types.Message):
     await message.answer("✅ Бот работает исправно!")
@@ -401,33 +425,38 @@ async def back_to_main(callback: types.CallbackQuery):
     await callback.answer()
 
 # =============================
-# ОБРАБОТЧИК ОШИБОК
+# ФУНКЦИЯ ЗАПУСКА БОТА
 # =============================
-@dp.errors()
-async def errors_handler(update, exception):
-    logger.error(f"Ошибка при обработке {update}: {exception}")
-    return True
-
-# =============================
-# ЗАПУСК БОТА
-# =============================
-async def main():
+async def run_bot():
     try:
-        logger.info("🚀 Запуск бота...")
-        # Проверяем соединение
+        logger.info("🤖 Запуск Telegram бота...")
         me = await bot.get_me()
         logger.info(f"✅ Бот @{me.username} успешно запущен!")
         logger.info(f"👤 Имя бота: {me.full_name}")
-        logger.info(f"🆔 ID бота: {me.id}")
         
         # Запускаем поллинг
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, skip_updates=True)
         
     except Exception as e:
-        logger.error(f"❌ Ошибка запуска бота: {e}")
-    finally:
-        await bot.session.close()
-        logger.info("🛑 Бот остановлен")
+        logger.error(f"❌ Ошибка в работе бота: {e}")
+        logger.info("🔄 Перезапуск через 10 секунд...")
+        await asyncio.sleep(10)
+        # Перезапускаем бота
+        asyncio.create_task(run_bot())
 
+# =============================
+# ЗАПУСК СЕРВЕРА ДЛЯ RENDER
+# =============================
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Получаем порт от Render (если есть)
+    port = int(os.getenv("PORT", 8000))
+    
+    logger.info(f"🌐 Запуск веб-сервера на порту {port}")
+    
+    # Запускаем сервер
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level="info"
+    )
